@@ -36,7 +36,11 @@ function Graficos() {
                 return res.json();
             })
             .then(data => {
-                setDatos(data.reverse());
+                if (data.length > 1 && new Date(data[0].fechaRegistro) > new Date(data[data.length - 1].fechaRegistro)) {
+                    setDatos([...data].reverse());
+                } else {
+                    setDatos(data);
+                }
                 setLoading(false);
             })
             .catch(err => {

@@ -10,6 +10,7 @@ import {
 } from "@mui/material";
 import LockIcon from "@mui/icons-material/Lock";
 import { useNavigate } from "react-router-dom";
+import { validarCorreo } from "./validaciones";
 
 function Login({ onLogin }) {
     const [correo, setCorreo] = useState("");
@@ -18,14 +19,40 @@ function Login({ onLogin }) {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
+    // Evita escribir espacios
+    const handleCorreoKeyDown = (e) => {
+        if (e.key === " ") {
+            e.preventDefault();
+        }
+    };
+
+    // Elimina espacios al pegar
+    const handleCorreoPaste = (e) => {
+        e.preventDefault();
+        const text = e.clipboardData.getData("text").replace(/\s/g, "");
+        setCorreo(text);
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
+
+        const correoSinEspacios = correo.replace(/\s/g, "");
+
+        if (!validarCorreo(correoSinEspacios)) {
+            setError("Correo inválido.");
+            return;
+        }
+        if (!password) {
+            setError("La contraseña es obligatoria.");
+            return;
+        }
+
         setLoading(true);
 
         try {
             const formData = new URLSearchParams();
-            formData.append("correo", correo);
+            formData.append("correo", correoSinEspacios);
             formData.append("password", password);
 
             const res = await fetch("http://localhost:8080/api/auth/login", {
@@ -37,7 +64,7 @@ function Login({ onLogin }) {
 
             if (res.ok) {
                 await onLogin();
-                navigate("/"); // Redirige al inicio tras login exitoso
+                navigate("/");
             } else {
                 setError("Credenciales incorrectas.");
             }
@@ -75,7 +102,11 @@ function Login({ onLogin }) {
                         fullWidth
                         required
                         value={correo}
-                        onChange={(e) => setCorreo(e.target.value)}
+                        onChange={e => setCorreo(e.target.value.replace(/\s/g, ""))}
+                        onKeyDown={handleCorreoKeyDown}
+                        onPaste={handleCorreoPaste}
+                        error={!!correo && !validarCorreo(correo)}
+                        helperText={!!correo && !validarCorreo(correo) ? "Correo inválido" : ""}
                     />
 
                     <TextField

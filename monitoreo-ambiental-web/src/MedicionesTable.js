@@ -5,7 +5,6 @@ import {
 } from "@mui/material";
 import { Cloud, Thermostat, WaterDrop, Search } from "@mui/icons-material";
 
-// Simula estaciones, reemplaza por fetch si tienes endpoint
 const estaciones = [
     { value: "Estacion_LIA_SantoTomas", label: "LIA Santo Tomás" },
     { value: "Otra_Estacion", label: "Otra Estación" }
@@ -40,7 +39,6 @@ function MedicionesTable() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    // Filtros
     const [estacion, setEstacion] = useState(estaciones[0].value);
     const [fechaInicio, setFechaInicio] = useState("");
     const [fechaFin, setFechaFin] = useState("");
@@ -49,13 +47,12 @@ function MedicionesTable() {
         setLoading(true);
         setError(null);
 
-        // Construye la URL con filtros
         let url = `http://localhost:8080/api/mediciones/ultimas?estacion=${encodeURIComponent(estacion)}`;
         if (fechaInicio && fechaFin) {
             url = `http://localhost:8080/api/mediciones/rango?estacion=${encodeURIComponent(estacion)}&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`;
         }
 
-        fetch(url)
+        fetch(url, { credentials: "include" })
             .then(res => {
                 if (!res.ok) throw new Error("Error al obtener datos");
                 return res.json();
@@ -85,7 +82,6 @@ function MedicionesTable() {
             <Typography variant="h6" gutterBottom>
                 Mediciones Recientes
             </Typography>
-            {/* Filtros */}
             <Box component="form" onSubmit={handleFiltrar} sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
                 <TextField
                     select

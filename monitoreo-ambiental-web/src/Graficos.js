@@ -30,7 +30,7 @@ function Graficos() {
         if (fechaInicio && fechaFin) {
             url = `http://localhost:8080/api/mediciones/rango?estacion=${encodeURIComponent(estacion)}&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`;
         }
-        fetch(url)
+        fetch(url, { credentials: "include" })
             .then(res => {
                 if (!res.ok) throw new Error("Error al obtener datos");
                 return res.json();

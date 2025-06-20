@@ -1,6 +1,8 @@
 package com.santotomas.lia.monitoreoambiental.config;
 
+import com.santotomas.lia.monitoreoambiental.security.JwtAuthenticationFilter;
 import com.santotomas.lia.monitoreoambiental.security.UsuarioDetailsService;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -8,6 +10,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 
 import java.util.List;
@@ -16,9 +19,11 @@ import java.util.List;
 public class WebSecurityConfig {
 
     private final UsuarioDetailsService usuarioDetailsService;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public WebSecurityConfig(UsuarioDetailsService usuarioDetailsService) {
+    public WebSecurityConfig(UsuarioDetailsService usuarioDetailsService, JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.usuarioDetailsService = usuarioDetailsService;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
     @Bean
@@ -35,6 +40,7 @@ public class WebSecurityConfig {
                 }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/auth/logout").permitAll()
+                        .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .formLogin(form -> form
@@ -60,7 +66,8 @@ public class WebSecurityConfig {
                             response.setContentType("application/json");
                             response.getWriter().write("{\"error\": \"No autorizado\"}");
                         })
-                );
+                )
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
@@ -75,5 +82,10 @@ public class WebSecurityConfig {
         authProvider.setUserDetailsService(usuarioDetailsService);
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
+    }
+
+    @Bean
+    public org.springframework.security.authentication.AuthenticationManager authenticationManager(org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration authenticationConfiguration) throws Exception {
+        return authenticationConfiguration.getAuthenticationManager();
     }
 }

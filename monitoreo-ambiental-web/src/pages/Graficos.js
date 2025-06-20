@@ -2,11 +2,6 @@ import React, { useState, useEffect } from "react";
 import { Paper, Typography, Box, TextField, MenuItem, Button, CircularProgress, Alert } from "@mui/material";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
-const estaciones = [
-    { value: "Estacion_LIA_SantoTomas", label: "LIA Santo Tomás" },
-    { value: "Otra_Estacion", label: "Otra Estación" }
-];
-
 const topicos = [
     { value: "temperatura", label: "Temperatura (°C)", color: "#ff9800" },
     { value: "humedad", label: "Humedad (%)", color: "#2196f3" },
@@ -15,20 +10,50 @@ const topicos = [
 ];
 
 function Graficos() {
-    const [estacion, setEstacion] = useState(estaciones[0].value);
+    const [estaciones, setEstaciones] = useState([]);
+    const [estacion, setEstacion] = useState("");
     const [fechaInicio, setFechaInicio] = useState("");
     const [fechaFin, setFechaFin] = useState("");
     const [topico, setTopico] = useState(topicos[0].value);
+    const [intervalo, setIntervalo] = useState("hora"); // nuevo estado para el intervalo
     const [datos, setDatos] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    // Cargar estaciones solo una vez y cachear en localStorage para mejorar velocidad
+    useEffect(() => {
+        const cached = localStorage.getItem("estaciones");
+        if (cached) {
+            setEstaciones(JSON.parse(cached));
+            setEstacion(JSON.parse(cached)[0]?.value || "");
+        } else {
+            fetch("http://localhost:8080/api/centrales", { credentials: "include" })
+                .then(res => {
+                    if (!res.ok) throw new Error("Error al obtener estaciones");
+                    return res.json();
+                })
+                .then(data => {
+                    const estacionesData = data.map(c => ({ value: c.nombre_central, label: c.nombre_central }));
+                    setEstaciones(estacionesData);
+                    setEstacion(estacionesData[0]?.value || "");
+                    localStorage.setItem("estaciones", JSON.stringify(estacionesData));
+                })
+                .catch(() => setEstaciones([]));
+        }
+    }, []);
+
+    // Elimina la función agruparDatos y usa el endpoint backend agrupado
+    useEffect(() => {
+        if (estacion && topico && intervalo) fetchDatos();
+        // eslint-disable-next-line
+    }, [estacion, topico, intervalo]);
+
     const fetchDatos = () => {
         setLoading(true);
         setError(null);
-        let url = `http://localhost:8080/api/mediciones/ultimas?estacion=${encodeURIComponent(estacion)}`;
+        let url = `http://localhost:8080/api/mediciones/agrupadas?central=${encodeURIComponent(estacion)}&topico=${topico}&intervalo=${intervalo}`;
         if (fechaInicio && fechaFin) {
-            url = `http://localhost:8080/api/mediciones/rango?estacion=${encodeURIComponent(estacion)}&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`;
+            url += `&fechaInicio=${fechaInicio}&fechaFin=${fechaFin}`;
         }
         fetch(url, { credentials: "include" })
             .then(res => {
@@ -36,11 +61,7 @@ function Graficos() {
                 return res.json();
             })
             .then(data => {
-                if (data.length > 1 && new Date(data[0].fechaRegistro) > new Date(data[data.length - 1].fechaRegistro)) {
-                    setDatos([...data].reverse());
-                } else {
-                    setDatos(data);
-                }
+                setDatos(data);
                 setLoading(false);
             })
             .catch(err => {
@@ -50,9 +71,9 @@ function Graficos() {
     };
 
     useEffect(() => {
-        fetchDatos();
+        if (estacion) fetchDatos();
         // eslint-disable-next-line
-    }, []);
+    }, [estacion]);
 
     const handleFiltrar = (e) => {
         e.preventDefault();
@@ -66,6 +87,9 @@ function Graficos() {
             day: "2-digit",
             month: "2-digit"
         });
+
+    // Formatea la fecha del eje X según el backend
+    const formatFechaDinamica = (fecha) => fecha;
 
     const topicoActual = topicos.find(t => t.value === topico);
 
@@ -113,6 +137,18 @@ function Graficos() {
                         <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
                     ))}
                 </TextField>
+                <TextField
+                    select
+                    label="Intervalo"
+                    value={intervalo}
+                    onChange={e => setIntervalo(e.target.value)}
+                    size="small"
+                >
+                    <MenuItem value="hora">Por hora</MenuItem>
+                    <MenuItem value="dia">Por día</MenuItem>
+                    <MenuItem value="semana">Por semana</MenuItem>
+                    <MenuItem value="mes">Por mes</MenuItem>
+                </TextField>
                 <Button type="submit" variant="contained">Filtrar</Button>
             </Box>
             {loading ? (
@@ -125,12 +161,12 @@ function Graficos() {
                 <Box>
                     <ResponsiveContainer width="100%" height={400}>
                         <LineChart data={datos}>
-                            <XAxis dataKey="fechaRegistro" tickFormatter={formatFecha} />
+                            <XAxis dataKey="fecha" tickFormatter={formatFechaDinamica} />
                             <YAxis />
                             <Tooltip />
                             <Line
                                 type="monotone"
-                                dataKey={topico}
+                                dataKey="valor"
                                 stroke={topicoActual.color}
                                 name={topicoActual.label}
                                 dot={false}

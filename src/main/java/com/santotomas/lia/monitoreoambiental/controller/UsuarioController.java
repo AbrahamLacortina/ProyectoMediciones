@@ -2,15 +2,20 @@ package com.santotomas.lia.monitoreoambiental.controller;
 
 import com.santotomas.lia.monitoreoambiental.model.Usuario;
 import com.santotomas.lia.monitoreoambiental.repository.UsuarioRepository;
+import com.santotomas.lia.monitoreoambiental.mapper.UsuarioMapper;
+import com.santotomas.lia.monitoreoambiental.dto.LoginResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/usuarios")
 @CrossOrigin(origins = "http://localhost:3000", allowCredentials = "true")
+@Validated
 public class UsuarioController {
 
     @Autowired
@@ -19,13 +24,18 @@ public class UsuarioController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private UsuarioMapper usuarioMapper;
+
     @GetMapping
-    public List<Usuario> listar() {
-        return usuarioRepository.findAll();
+    public List<LoginResponse> listar() {
+        return usuarioRepository.findAll().stream()
+            .map(usuarioMapper::usuarioToLoginResponse)
+            .toList();
     }
 
     @PostMapping
-    public Usuario crear(@RequestBody Usuario usuario) {
+    public LoginResponse crear(@Valid @RequestBody Usuario usuario) {
         usuario.setId(null);
 
         // Validar rol permitido
@@ -53,11 +63,11 @@ public class UsuarioController {
             usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
         }
 
-        return usuarioRepository.save(usuario);
+        return usuarioMapper.usuarioToLoginResponse(usuarioRepository.save(usuario));
     }
 
     @PutMapping("/{id}")
-    public Usuario editar(@PathVariable Long id, @RequestBody Usuario usuario) {
+    public LoginResponse editar(@PathVariable Long id, @Valid @RequestBody Usuario usuario) {
         Usuario existente = usuarioRepository.findById(id).orElseThrow();
 
         // Validar rol permitido
@@ -93,14 +103,14 @@ public class UsuarioController {
             existente.setPassword(passwordEncoder.encode(usuario.getPassword()));
         }
 
-        return usuarioRepository.save(existente);
+        return usuarioMapper.usuarioToLoginResponse(usuarioRepository.save(existente));
     }
 
     // Eliminado lógico
     @PutMapping("/{id}/eliminar")
-    public Usuario eliminar(@PathVariable Long id) {
+    public LoginResponse eliminar(@PathVariable Long id) {
         Usuario usuario = usuarioRepository.findById(id).orElseThrow();
         usuario.setActivo(false);
-        return usuarioRepository.save(usuario);
+        return usuarioMapper.usuarioToLoginResponse(usuarioRepository.save(usuario));
     }
 }

@@ -23,11 +23,12 @@ public class UsuarioDetailsService implements UserDetailsService {
         if (usuario == null || !usuario.isActivo()) {
             throw new UsernameNotFoundException("Usuario no encontrado o inactivo");
         }
-        // Puedes mapear el rol a un nombre, aquí solo se usa el int como string
+        // Mapea el rol int a nombre de rol
+        String roleName = usuario.getRol() == 1 ? "ADMIN" : "USER";
         return new User(
                 usuario.getCorreo(),
                 usuario.getPassword(),
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + usuario.getRol()))
+                Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + roleName))
         );
     }
 }

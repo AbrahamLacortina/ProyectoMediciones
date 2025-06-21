@@ -46,7 +46,7 @@ export default function ResumenEstadistico({ resumen, mediciones }) {
                     {Array.isArray(mediciones) && mediciones.length > 1 && (
                         <Tooltip title="Tendencia reciente" arrow>
                             <Box mt={1}>
-                                <Sparklines data={mediciones.map(m => m[v.key]).filter(x => x !== null && x !== undefined && !isNaN(x))} height={32} width={100} margin={4}>
+                                <Sparklines data={mediciones.map(m => m[v.key]).filter(x => x !== null && x !== undefined && !isNaN(x)).reverse()} height={32} width={100} margin={4}>
                                     <SparklinesLine color={v.color} style={{ fill: "none" }} />
                                 </Sparklines>
                             </Box>

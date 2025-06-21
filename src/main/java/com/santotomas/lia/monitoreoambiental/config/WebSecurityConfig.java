@@ -36,6 +36,9 @@ public class WebSecurityConfig {
                     config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
                     config.setAllowedHeaders(List.of("*"));
                     config.setAllowCredentials(true);
+                    // Exponer cabeceras personalizadas para paginación
+                    config.addExposedHeader("X-Total-Pages");
+                    config.addExposedHeader("X-Total-Elements");
                     return config;
                 }))
                 .authorizeHttpRequests(auth -> auth

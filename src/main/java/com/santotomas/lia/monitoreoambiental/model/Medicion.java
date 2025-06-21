@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
-import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 
 @Entity
@@ -18,7 +18,7 @@ public class Medicion {
     private Integer id;
 
     @Column(name = "fecha")
-    private Timestamp fecha;
+    private LocalDateTime fecha;
 
     @Column(name = "temperatura")
     private Float temperatura;

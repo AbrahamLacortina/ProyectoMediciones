@@ -81,7 +81,7 @@ function Login({ onLogin }) {
             justifyContent="center"
             alignItems="center"
             height="100vh"
-            bgcolor="#f5f5f5"
+            bgcolor="background.default"
         >
             <Paper elevation={4} sx={{ p: 4, width: 350, borderRadius: 3 }}>
                 <Box

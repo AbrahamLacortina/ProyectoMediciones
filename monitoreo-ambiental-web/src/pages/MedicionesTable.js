@@ -1,18 +1,85 @@
 import React, { useEffect, useState, useMemo } from "react";
+import mqtt from 'mqtt';
 import {
-    Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-    Paper, CircularProgress, Alert, Typography, Box, Chip, TextField, MenuItem, Button,
-} from "@mui/material";
-import { Cloud, Thermostat, WaterDrop, Search, InfoOutlined } from "@mui/icons-material";
-import ValorChip from "./ValorChip";
-import { formatFecha } from "./utils";
-import TablePagination from '@mui/material/TablePagination';
+    Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
+    TablePagination, CircularProgress, Typography, Box, Alert, IconButton, Collapse, TableSortLabel,
+    Fade, Button, TextField, MenuItem, Skeleton
+} from '@mui/material';
+import { Cloud, Thermostat, WaterDrop, Search, InfoOutlined, KeyboardArrowDown, KeyboardArrowUp } from "@mui/icons-material";
+import ValorChip, { ThresholdConfigDialog, getThresholds } from "./ValorChip";
+import { formatFecha, formatFechaLocal } from "./utils";
+import { Sparklines, SparklinesLine } from "react-sparklines";
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import SettingsIcon from '@mui/icons-material/Settings';
 import Snackbar from '@mui/material/Snackbar';
 import MuiAlert from '@mui/material/Alert';
 import Tooltip from '@mui/material/Tooltip';
+import ResumenEstadistico from "./ResumenEstadistico";
+import { visuallyHidden } from '@mui/utils';
 
-function MedicionesTable() {
+function exportToCSV(data, filename = "mediciones.csv") {
+    const header = ["Fecha", "Temperatura", "Humedad", "PM2.5", "PM10"];
+    const rows = data.map(m => [
+        formatFechaLocal(m.fecha),
+        m.temperatura,
+        m.humedad,
+        m.pm25,
+        m.pm10
+    ]);
+    const csv = [header, ...rows].map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function exportToExcel(data) {
+    import("xlsx").then(XLSX => {
+        const ws = XLSX.utils.json_to_sheet(data.map(m => ({
+            Fecha: formatFechaLocal(m.fecha),
+            Temperatura: m.temperatura,
+            Humedad: m.humedad,
+            "PM2.5": m.pm25,
+            "PM10": m.pm10
+        })));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Mediciones");
+        XLSX.writeFile(wb, "mediciones.xlsx");
+    });
+}
+
+function exportToPDF(data) {
+    import("jspdf").then(jsPDF => {
+        import("jspdf-autotable").then(() => {
+            const doc = new jsPDF.jsPDF();
+            doc.text("Mediciones", 14, 10);
+            doc.autoTable({
+                head: [["Fecha", "Temperatura", "Humedad", "PM2.5", "PM10"]],
+                body: data.map(m => [
+                    formatFechaLocal(m.fecha),
+                    m.temperatura,
+                    m.humedad,
+                    m.pm25,
+                    m.pm10
+                ]),
+                startY: 20
+            });
+            doc.save("mediciones.pdf");
+        });
+    });
+}
+
+const MedicionesTable = () => {
     const [mediciones, setMediciones] = useState([]);
+    const [newMedicion, setNewMedicion] = useState(null);
+    const [lastShownMedicionId, setLastShownMedicionId] = useState(null);
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(10);
+    const [order, setOrder] = useState('asc');
+    const [orderBy, setOrderBy] = useState('fecha');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
@@ -21,8 +88,6 @@ function MedicionesTable() {
     const [fechaInicio, setFechaInicio] = useState("");
     const [fechaFin, setFechaFin] = useState("");
 
-    const [page, setPage] = useState(0);
-    const [size, setSize] = useState(100);
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
     const [noMoreData, setNoMoreData] = useState(false);
@@ -41,30 +106,25 @@ function MedicionesTable() {
 
     // Cargar estaciones solo una vez y cachear en localStorage para mejorar velocidad
     useEffect(() => {
-        const cached = localStorage.getItem("estaciones");
-        if (cached) {
-            setEstaciones(JSON.parse(cached));
-            setEstacion(JSON.parse(cached)[0]?.value || "");
-        } else {
-            fetch("http://localhost:8080/api/centrales", { credentials: "include" })
-                .then(res => {
-                    if (!res.ok) throw new Error("Error al obtener estaciones");
-                    return res.json();
-                })
-                .then(data => {
-                    const estacionesData = data.map(c => ({ value: c.nombre_central, label: c.nombre_central }));
-                    setEstaciones(estacionesData);
-                    setEstacion(estacionesData[0]?.value || "");
-                    localStorage.setItem("estaciones", JSON.stringify(estacionesData));
-                })
-                .catch(() => setEstaciones([]));
-        }
+        fetch("http://localhost:8080/api/centrales", { credentials: "include" })
+            .then(res => {
+                if (!res.ok) throw new Error("Error al obtener estaciones");
+                return res.json();
+            })
+            .then(data => {
+                const estacionesData = data.map(c => ({ value: c.nombre_central, label: c.nombre_central }));
+                setEstaciones(estacionesData);
+                if (estacionesData.length > 0) {
+                    setEstacion(estacionesData[0].value);
+                }
+            })
+            .catch(() => setEstaciones([]));
     }, []);
 
     useEffect(() => {
         if (estacion) {
             setPage(0); // Reinicia a la primera página al cambiar estación
-            fetchMediciones(0, size);
+            fetchMediciones(0, rowsPerPage);
         }
         // eslint-disable-next-line
     }, [estacion]);
@@ -72,9 +132,9 @@ function MedicionesTable() {
     // useEffect para actualizar la tabla cuando cambian los filtros de fecha, página, tamaño o estación
     useEffect(() => {
         if (!estacion) return;
-        fetchMediciones(page, size, fechaInicio, fechaFin);
+        fetchMediciones(page, rowsPerPage, fechaInicio, fechaFin);
         // eslint-disable-next-line
-    }, [fechaInicio, fechaFin, size, estacion, page]);
+    }, [fechaInicio, fechaFin, rowsPerPage, estacion, page]);
 
     // Al cambiar estación, obtener los últimos 60 registros y ajustar fechas por defecto
     useEffect(() => {
@@ -114,13 +174,14 @@ function MedicionesTable() {
         // eslint-disable-next-line
     }, [estacion]);
 
-    // Cambia fetchMediciones para NO ejecutar si no hay estación seleccionada
-    const fetchMediciones = (pageArg = page, sizeArg = size, fechaInicioArg = fechaInicio, fechaFinArg = fechaFin) => {
-        if (!estacion) return; // No hacer fetch si no hay estación
+    // Modificar fetchMediciones para incluir filtros avanzados
+    const fetchMediciones = (pageArg = page, sizeArg = rowsPerPage, fechaInicioArg = fechaInicio, fechaFinArg = fechaFin) => {
+        if (!estacion) return;
         setLoading(true);
         setError(null);
         setNoMoreData(false);
         let url = `http://localhost:8080/api/mediciones/rango?central=${encodeURIComponent(estacion)}&fechaInicio=${fechaInicioArg || '2000-01-01'}&fechaFin=${fechaFinArg || '2100-12-31'}&page=${pageArg}&size=${sizeArg}`;
+        Object.entries(filtros).forEach(([k, v]) => { if (v !== '') url += `&${k}=${v}`; });
         fetch(url, { credentials: "include" })
             .then(res => {
                 if (!res.ok) throw new Error("Error al obtener datos");
@@ -141,36 +202,72 @@ function MedicionesTable() {
             });
     };
 
-    // Polling para nueva medición
+    // Conexión MQTT para nuevas mediciones
     useEffect(() => {
-        if (!estacion) return;
-        let intervalId;
-        const fetchUltimaMedicion = () => {
-            fetch(`http://localhost:8080/api/mediciones/ultima?central=${encodeURIComponent(estacion)}`, { credentials: "include" })
-                .then(res => res.ok ? res.json() : null)
-                .then(data => {
-                    if (!data) return;
-                    // Si hay mediciones en la tabla, comparar por id o fecha
-                    const idActual = mediciones[0]?.id;
-                    if (data.id && data.id !== ultimaMedicionId && data.id !== idActual) {
-                        setNuevaMedicion(data);
-                        setSnackbarVisible(true);
-                        setUltimaMedicionId(data.id);
-                    }
-                })
-                .catch(() => {});
+        const client = mqtt.connect('ws://localhost:8083/mqtt');
+
+        client.on('connect', () => {
+            console.log('Conectado al broker MQTT');
+            client.subscribe('mediciones/nuevas', (err) => {
+                if (err) {
+                    console.error('Error al suscribirse al topic:', err);
+                }
+            });
+        });
+
+        client.on('message', (topic, message) => {
+            const medicion = JSON.parse(message.toString());
+            console.log('Nuevo mensaje MQTT:', medicion);
+
+            // Si hay mediciones en la tabla, comparar por id o fecha
+            const idActual = mediciones[0]?.id;
+            if (medicion.id && medicion.id !== ultimaMedicionId && medicion.id !== idActual) {
+                setNuevaMedicion(medicion);
+                setSnackbarVisible(true);
+                setUltimaMedicionId(medicion.id);
+            }
+        });
+
+        return () => {
+            if (client) {
+                client.end();
+            }
         };
-        fetchUltimaMedicion();
-        intervalId = setInterval(fetchUltimaMedicion, 10000); // cada 10s
-        return () => clearInterval(intervalId);
         // eslint-disable-next-line
-    }, [estacion, mediciones, ultimaMedicionId]);
+    }, [mediciones, ultimaMedicionId]);
 
     // Actualiza el id de la última medición cuando cambian los datos de la tabla
     useEffect(() => {
         if (mediciones.length > 0) {
             setUltimaMedicionId(mediciones[0].id);
         }
+    }, [mediciones]);
+
+    // Mueve los hooks fuera de cualquier condicional
+    const [showThresholdDialog, setShowThresholdDialog] = useState(false);
+    const [filtros, setFiltros] = useState({
+        temperaturaMin: '', temperaturaMax: '',
+        humedadMin: '', humedadMax: '',
+        pm25Min: '', pm25Max: '',
+        pm10Min: '', pm10Max: ''
+    });
+    const resumen = useMemo(() => {
+        if (!mediciones.length) return null;
+        const calc = key => {
+            const vals = mediciones.map(m => m[key]).filter(x => x !== null && x !== undefined && !isNaN(x));
+            if (!vals.length) return { promedio: '-', min: '-', max: '-' };
+            return {
+                promedio: (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2),
+                min: Math.min(...vals).toFixed(2),
+                max: Math.max(...vals).toFixed(2)
+            };
+        };
+        return {
+            temperatura: calc('temperatura'),
+            humedad: calc('humedad'),
+            pm25: calc('pm25'),
+            pm10: calc('pm10')
+        };
     }, [mediciones]);
 
     // Mostrar mensaje si no hay estaciones
@@ -196,117 +293,194 @@ function MedicionesTable() {
         fetchMediciones();
     };
 
+    const handleRequestSort = (event, property) => {
+        const isAsc = orderBy === property && order === 'asc';
+        setOrder(isAsc ? 'desc' : 'asc');
+        setOrderBy(property);
+    };
+
+    const createSortHandler = (property) => (event) => {
+        handleRequestSort(event, property);
+    };
+
+    const descendingComparator = (a, b, orderBy) => {
+        if (b[orderBy] < a[orderBy]) {
+            return -1;
+        }
+        if (b[orderBy] > a[orderBy]) {
+            return 1;
+        }
+        return 0;
+    };
+
+    const getComparator = (order, orderBy) => {
+        return order === 'desc'
+            ? (a, b) => descendingComparator(a, b, orderBy)
+            : (a, b) => -descendingComparator(a, b, orderBy);
+    };
+
+    // This method is created for cross-browser compatibility, if you don't
+    // need to support IE11, you can use Array.prototype.sort() directly
+    const stableSort = (array, comparator) => {
+        const stabilizedThis = array.map((el, index) => [el, index]);
+        stabilizedThis.sort((a, b) => {
+            const order = comparator(a[0], b[0]);
+            if (order !== 0) {
+                return order;
+            }
+            return a[1] - b[1];
+        });
+        return stabilizedThis.map((el) => el[0]);
+    };
+
+    const handleChangePage = (event, newPage) => {
+        setPage(newPage);
+    };
+
+    const handleChangeRowsPerPage = (event) => {
+        setRowsPerPage(parseInt(event.target.value, 10));
+        setPage(0);
+    };
+
+    if (error) {
+        return <Alert severity="error">{error}</Alert>;
+    }
+
+    const headCells = [
+        { id: 'fecha', numeric: false, label: 'Fecha', icon: <Cloud sx={{ verticalAlign: "middle" }} />, tooltip: 'Fecha y hora de la medición' },
+        { id: 'temperatura', numeric: true, label: 'Temp. (°C)', icon: <Thermostat sx={{ verticalAlign: "middle" }} />, tooltip: 'Temperatura' },
+        { id: 'humedad', numeric: true, label: 'Humedad (%)', icon: <WaterDrop sx={{ verticalAlign: "middle" }} />, tooltip: 'Humedad relativa' },
+        { id: 'pm25', numeric: true, label: 'PM2.5', tooltip: 'Material particulado fino' },
+        { id: 'pm10', numeric: true, label: 'PM10', tooltip: 'Material particulado grueso' },
+    ];
+
     return (
-        <Paper elevation={3} sx={{ borderRadius: 3, p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-                Mediciones Recientes
-            </Typography>
-            <Box component="form" onSubmit={handleFiltrar} sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
-                <TextField
-                    select
-                    label="Estación"
-                    value={estacion}
-                    onChange={e => setEstacion(e.target.value)}
-                    size="small"
-                >
-                    {estacionesMemo.map(opt => (
-                        <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                    ))}
-                </TextField>
-                <TextField
-                    label="Desde"
-                    type="date"
-                    size="small"
-                    InputLabelProps={{ shrink: true }}
-                    value={fechaInicio}
-                    onChange={e => setFechaInicio(e.target.value)}
-                />
-                <TextField
-                    label="Hasta"
-                    type="date"
-                    size="small"
-                    InputLabelProps={{ shrink: true }}
-                    value={fechaFin}
-                    onChange={e => setFechaFin(e.target.value)}
-                />
-                <TextField
-                    label="Tamaño página"
-                    type="number"
-                    size="small"
-                    value={size}
-                    onChange={e => setSize(Number(e.target.value))}
-                    inputProps={{ min: 10, max: 1000 }}
-                    sx={{ width: 120 }}
-                />
-                <Button type="submit" variant="contained" startIcon={<Search />}>Filtrar</Button>
-            </Box>
-            {loading ? (
-                <Box display="flex" justifyContent="center" alignItems="center" height="200px">
-                    <CircularProgress />
+        <Fade in={true} timeout={500}>
+            <Paper elevation={3} sx={{ borderRadius: 3, p: { xs: 1, sm: 2 } }}>
+                <Box display="flex" flexDirection={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} mb={2} gap={2}>
+                    <Typography variant="h6">Mediciones Recientes</Typography>
+                    <Box display="flex" gap={1} flexWrap="wrap">
+                        <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={() => exportToCSV(mediciones)} size="small">CSV</Button>
+                        <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={() => exportToExcel(mediciones)} size="small">Excel</Button>
+                        <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={() => exportToPDF(mediciones)} size="small">PDF</Button>
+                        <Button variant="outlined" startIcon={<SettingsIcon />} onClick={() => setShowThresholdDialog(true)} size="small">Umbrales</Button>
+                    </Box>
                 </Box>
-            ) : error ? (
-                <Snackbar open={!!error} autoHideDuration={6000} onClose={() => setError(null)}>
-                    <MuiAlert elevation={6} variant="filled" severity="error" onClose={() => setError(null)}>
-                        {error}
-                    </MuiAlert>
-                </Snackbar>
-            ) : (
-                <>
-                <TableContainer>
-                    <Table size="small" aria-label="Tabla de mediciones ambientales">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell><Tooltip title="Fecha y hora de la medición"><Cloud sx={{ verticalAlign: "middle" }} /> Fecha</Tooltip></TableCell>
-                                <TableCell><Tooltip title="Temperatura"><Thermostat sx={{ verticalAlign: "middle" }} /> Temp. (°C)</Tooltip></TableCell>
-                                <TableCell><Tooltip title="Humedad relativa"><WaterDrop sx={{ verticalAlign: "middle" }} /> Humedad (%)</Tooltip></TableCell>
-                                <TableCell><Tooltip title="Material particulado fino"><span>PM2.5</span></Tooltip></TableCell>
-                                <TableCell><Tooltip title="Material particulado grueso"><span>PM10</span></Tooltip></TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {mediciones.length === 0 ? (
+                {/* Resumen estadístico y tendencias */}
+                <ResumenEstadistico resumen={resumen} mediciones={mediciones} />
+                <Box component="form" onSubmit={handleFiltrar} sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2, alignItems: "center" }}>
+                    <TextField select label="Estación" value={estacion} onChange={e => setEstacion(e.target.value)} size="small" sx={{ minWidth: 140, flex: '1 1 120px' }}>
+                        {estacionesMemo.map(opt => (
+                            <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+                        ))}
+                    </TextField>
+                    <TextField label="Desde" type="date" size="small" InputLabelProps={{ shrink: true }} value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} sx={{ minWidth: 120 }} />
+                    <TextField label="Hasta" type="date" size="small" InputLabelProps={{ shrink: true }} value={fechaFin} onChange={e => setFechaFin(e.target.value)} sx={{ minWidth: 120 }} />
+                    {/* Filtros avanzados */}
+                    <TextField label="Temp. mín" type="number" size="small" value={filtros.temperaturaMin} onChange={e => setFiltros(f => ({ ...f, temperaturaMin: e.target.value }))} sx={{ width: 100 }} />
+                    <TextField label="Temp. máx" type="number" size="small" value={filtros.temperaturaMax} onChange={e => setFiltros(f => ({ ...f, temperaturaMax: e.target.value }))} sx={{ width: 100 }} />
+                    <TextField label="Humedad mín" type="number" size="small" value={filtros.humedadMin} onChange={e => setFiltros(f => ({ ...f, humedadMin: e.target.value }))} sx={{ width: 110 }} />
+                    <TextField label="Humedad máx" type="number" size="small" value={filtros.humedadMax} onChange={e => setFiltros(f => ({ ...f, humedadMax: e.target.value }))} sx={{ width: 110 }} />
+                    <TextField label="PM2.5 mín" type="number" size="small" value={filtros.pm25Min} onChange={e => setFiltros(f => ({ ...f, pm25Min: e.target.value }))} sx={{ width: 110 }} />
+                    <TextField label="PM2.5 máx" type="number" size="small" value={filtros.pm25Max} onChange={e => setFiltros(f => ({ ...f, pm25Max: e.target.value }))} sx={{ width: 110 }} />
+                    <TextField label="PM10 mín" type="number" size="small" value={filtros.pm10Min} onChange={e => setFiltros(f => ({ ...f, pm10Min: e.target.value }))} sx={{ width: 100 }} />
+                    <TextField label="PM10 máx" type="number" size="small" value={filtros.pm10Max} onChange={e => setFiltros(f => ({ ...f, pm10Max: e.target.value }))} sx={{ width: 100 }} />
+                    <TextField label="Tamaño página" type="number" size="small" value={rowsPerPage} onChange={e => setRowsPerPage(Number(e.target.value))} inputProps={{ min: 10, max: 1000 }} sx={{ width: 110 }} />
+                    <Button type="submit" variant="contained" startIcon={<Search />} sx={{ minWidth: 120 }}>Filtrar</Button>
+                </Box>
+                <Box sx={{ width: "100%", overflowX: "auto" }}>
+                    <TableContainer>
+                        <Table size="small" aria-label="Tabla de mediciones ambientales" sx={{
+                            transition: 'background-color 0.4s, color 0.4s',
+                            bgcolor: (theme) => theme.palette.background.paper,
+                            color: (theme) => theme.palette.text.primary
+                        }}>
+                            <TableHead>
                                 <TableRow>
-                                    <TableCell colSpan={5} align="center">
-                                        <Alert severity="info" sx={{ my: 2 }}>
-                                            No hay mediciones para los filtros seleccionados.
-                                        </Alert>
-                                    </TableCell>
+                                    {headCells.map((headCell) => (
+                                        <TableCell
+                                            key={headCell.id}
+                                            align={headCell.numeric ? 'right' : 'left'}
+                                            sortDirection={orderBy === headCell.id ? order : false}
+                                        >
+                                            <Tooltip title={headCell.tooltip}>
+                                                <TableSortLabel
+                                                    active={orderBy === headCell.id}
+                                                    direction={orderBy === headCell.id ? order : 'asc'}
+                                                    onClick={createSortHandler(headCell.id)}
+                                                >
+                                                    {headCell.icon} {headCell.label}
+                                                    {orderBy === headCell.id ? (
+                                                        <Box component="span" sx={visuallyHidden}>
+                                                            {order === 'desc' ? 'sorted descending' : 'sorted ascending'}
+                                                        </Box>
+                                                    ) : null}
+                                                </TableSortLabel>
+                                            </Tooltip>
+                                        </TableCell>
+                                    ))}
                                 </TableRow>
-                            ) : (
-                                mediciones.map((m) => (
-                                    <TableRow key={m.id}>
-                                        <TableCell>{formatFecha(m.fecha)}</TableCell>
-                                        <TableCell>
-                                            <ValorChip label="Temp" value={m.temperatura} unidad="°C" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <ValorChip label="Humedad" value={m.humedad} unidad="%" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <ValorChip label="PM2.5" value={m.pm25} unidad="µg/m³" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <ValorChip label="PM10" value={m.pm10} unidad="µg/m³" />
+                            </TableHead>
+                            <TableBody>
+                                {loading ? (
+                                    Array.from(new Array(rowsPerPage)).map((_, index) => (
+                                        <TableRow key={index}>
+                                            <TableCell><Skeleton animation="wave" /></TableCell>
+                                            <TableCell><Skeleton animation="wave" /></TableCell>
+                                            <TableCell><Skeleton animation="wave" /></TableCell>
+                                            <TableCell><Skeleton animation="wave" /></TableCell>
+                                            <TableCell><Skeleton animation="wave" /></TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : mediciones.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} align="center">
+                                            <Box sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
+                                                <InfoOutlined sx={{ fontSize: 60 }} />
+                                                <Typography variant="h6">No se encontraron mediciones</Typography>
+                                                <Typography>Prueba a cambiar los filtros o selecciona otra estación.</Typography>
+                                            </Box>
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </TableContainer>
+                                ) : (
+                                    stableSort(mediciones, getComparator(order, orderBy))
+                                        .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                                        .map((m) => (
+                                            <TableRow key={m.id}>
+                                                <TableCell>{formatFecha(m.fecha)}</TableCell>
+                                                <TableCell align="right">
+                                                    <ValorChip label="Temp" value={m.temperatura} unidad="°C" />
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <ValorChip label="Humedad" value={m.humedad} unidad="%" />
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <ValorChip label="PM2.5" value={m.pm25} unidad="µg/m³" />
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <ValorChip label="PM10" value={m.pm10} unidad="µg/m³" />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </Box>
                 <TablePagination
                     component="div"
                     count={totalElements}
                     page={page}
                     onPageChange={(e, newPage) => setPage(newPage)}
-                    rowsPerPage={size}
-                    onRowsPerPageChange={e => { setSize(parseInt(e.target.value, 10)); setPage(0); }}
+                    rowsPerPage={rowsPerPage}
+                    onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
                     labelRowsPerPage="Filas por página"
                     labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count !== -1 ? count : 'más de ' + to} registros`}
                     showFirstButton
                     showLastButton={totalPages > 1}
                     SelectProps={{ inputProps: { 'aria-label': 'Filas por página' }, native: false }}
                     rowsPerPageOptions={[]}
+                    sx={{ mt: 1, mb: 1, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap' } }}
                 />
                 <Snackbar
                     open={snackbarVisible}
@@ -342,9 +516,9 @@ function MedicionesTable() {
                         )}
                     </MuiAlert>
                 </Snackbar>
-                </>
-            )}
-        </Paper>
+                <ThresholdConfigDialog open={showThresholdDialog} onClose={() => setShowThresholdDialog(false)} onSave={() => {}} />
+            </Paper>
+        </Fade>
     );
 }
 

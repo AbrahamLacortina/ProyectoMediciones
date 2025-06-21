@@ -38,7 +38,7 @@ const BienvenidaDialog = ({ open, onClose, nombre }) => {
             </DialogTitle>
             <DialogContent>
                 <Stack spacing={2} alignItems="center">
-                    <Avatar sx={{ bgcolor: "#1976d2", width: 56, height: 56, fontSize: 24 }}>
+                    <Avatar sx={{ bgcolor: "primary.main", width: 56, height: 56, fontSize: 24 }}>
                         {nombre ? nombre[0].toUpperCase() : "U"}
                     </Avatar>
                     <Typography variant="body1">

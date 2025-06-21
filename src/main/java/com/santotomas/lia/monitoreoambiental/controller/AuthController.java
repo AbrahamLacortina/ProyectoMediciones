@@ -14,6 +14,7 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.util.Map;
 
 @RestController
@@ -32,6 +33,25 @@ public class AuthController {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @PostMapping("/register")
+    public ResponseEntity<?> registerUser(@Valid @RequestBody Usuario usuario) {
+        if (usuarioRepository.findByCorreo(usuario.getCorreo()) != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "El correo ya está registrado."));
+        }
+
+        if (usuario.getRut() != null && !usuario.getRut().isBlank() && usuarioRepository.findByRut(usuario.getRut()) != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "El RUT ya está registrado."));
+        }
+
+        usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
+        usuario.setActivo(true); // Por defecto, los usuarios nuevos están activos
+
+        Usuario nuevoUsuario = usuarioRepository.save(usuario);
+        LoginResponse response = usuarioMapper.usuarioToLoginResponse(nuevoUsuario);
+
+        return ResponseEntity.ok(response);
+    }
 
     @GetMapping("/me")
     public LoginResponse me() {

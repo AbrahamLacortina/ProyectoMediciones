@@ -7,5 +7,5 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface CentralRepository extends JpaRepository<Central, Integer> {
     Central findByNombreCentral(String nombreCentral);
+    Central findByTopicoBase(String topicoBase);
 }
-

@@ -132,9 +132,11 @@ public class MedicionAmbientalService {
     private void persistMeasurement(String nombreEstacion, MedicionTemp tempMeasurement) {
         try {
             logger.trace("Persistiendo medición para {}: {}", nombreEstacion, tempMeasurement);
-            Central central = centralRepository.findByNombreCentral(nombreEstacion);
+            // Extraer el tópico base del nombreEstacion (que en realidad es el topico base)
+            String topicoBase = nombreEstacion;
+            Central central = centralRepository.findByTopicoBase(topicoBase);
             if (central == null) {
-                logger.error("Central '{}' no encontrada en la base de datos. No se guardará la medición.", nombreEstacion);
+                logger.error("Central con topico_base '{}' no encontrada en la base de datos. No se guardará la medición.", topicoBase);
                 return;
             }
             Medicion medicion = new Medicion();

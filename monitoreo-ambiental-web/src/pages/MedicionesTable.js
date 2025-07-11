@@ -3,7 +3,7 @@ import mqtt from 'mqtt';
 import {
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
     TablePagination, CircularProgress, Typography, Box, Alert, IconButton, Collapse, TableSortLabel,
-    Fade, Button, TextField, MenuItem, Skeleton
+    Fade, Button, TextField, MenuItem, Skeleton, FormControl, InputLabel, Select
 } from '@mui/material';
 import { Cloud, Thermostat, WaterDrop, Search, InfoOutlined, KeyboardArrowDown, KeyboardArrowUp } from "@mui/icons-material";
 import ValorChip, { ThresholdConfigDialog, getThresholds } from "./ValorChip";
@@ -83,8 +83,8 @@ const MedicionesTable = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    const [estaciones, setEstaciones] = useState([]);
-    const [estacion, setEstacion] = useState("");
+    const [centrales, setCentrales] = useState([]);
+    const [central, setCentral] = useState("");
     const [fechaInicio, setFechaInicio] = useState("");
     const [fechaFin, setFechaFin] = useState("");
 
@@ -96,51 +96,42 @@ const MedicionesTable = () => {
     const [nuevaMedicion, setNuevaMedicion] = useState(null);
     const [ultimaMedicionId, setUltimaMedicionId] = useState(null);
 
-    const estacionesMemo = useMemo(() => {
-        const cached = localStorage.getItem("estaciones");
-        if (cached) {
-            return JSON.parse(cached);
-        }
-        return estaciones;
-    }, [estaciones]);
-
-    // Cargar estaciones solo una vez y cachear en localStorage para mejorar velocidad
+    // Cargar centrales desde el servidor
     useEffect(() => {
         fetch("http://localhost:8080/api/centrales", { credentials: "include" })
             .then(res => {
-                if (!res.ok) throw new Error("Error al obtener estaciones");
+                if (!res.ok) throw new Error("Error al obtener centrales");
                 return res.json();
             })
             .then(data => {
-                const estacionesData = data.map(c => ({ value: c.nombre_central, label: c.nombre_central }));
-                setEstaciones(estacionesData);
-                if (estacionesData.length > 0) {
-                    setEstacion(estacionesData[0].value);
+                setCentrales(data);
+                if (data.length > 0) {
+                    setCentral(data[0].nombreCentral);
                 }
             })
-            .catch(() => setEstaciones([]));
+            .catch(err => {
+                setError(err.message);
+                setCentrales([]);
+            });
     }, []);
 
     useEffect(() => {
-        if (estacion) {
-            setPage(0); // Reinicia a la primera página al cambiar estación
+        if (central) {
+            setPage(0);
             fetchMediciones(0, rowsPerPage);
         }
-        // eslint-disable-next-line
-    }, [estacion]);
+    }, [central]);
 
-    // useEffect para actualizar la tabla cuando cambian los filtros de fecha, página, tamaño o estación
     useEffect(() => {
-        if (!estacion) return;
+        if (!central) return;
         fetchMediciones(page, rowsPerPage, fechaInicio, fechaFin);
-        // eslint-disable-next-line
-    }, [fechaInicio, fechaFin, rowsPerPage, estacion, page]);
+    }, [fechaInicio, fechaFin, rowsPerPage, central, page]);
 
     // Al cambiar estación, obtener los últimos 60 registros y ajustar fechas por defecto
     useEffect(() => {
-        if (!estacion) return;
+        if (!central) return;
         setLoading(true);
-        fetch(`http://localhost:8080/api/mediciones/ultimas?central=${encodeURIComponent(estacion)}&limit=60`, { credentials: "include" })
+        fetch(`/api/mediciones/ultimas?central=${encodeURIComponent(central)}&limit=60`)
             .then(res => res.ok ? res.json() : [])
             .then(data => {
                 if (data.length > 0) {
@@ -172,15 +163,15 @@ const MedicionesTable = () => {
                 setLoading(false);
             });
         // eslint-disable-next-line
-    }, [estacion]);
+    }, [central]);
 
     // Modificar fetchMediciones para incluir filtros avanzados
     const fetchMediciones = (pageArg = page, sizeArg = rowsPerPage, fechaInicioArg = fechaInicio, fechaFinArg = fechaFin) => {
-        if (!estacion) return;
+        if (!central) return;
         setLoading(true);
         setError(null);
         setNoMoreData(false);
-        let url = `http://localhost:8080/api/mediciones/rango?central=${encodeURIComponent(estacion)}&fechaInicio=${fechaInicioArg || '2000-01-01'}&fechaFin=${fechaFinArg || '2100-12-31'}&page=${pageArg}&size=${sizeArg}`;
+        let url = `http://localhost:8080/api/mediciones/rango?central=${encodeURIComponent(central)}&fechaInicio=${fechaInicioArg || '2000-01-01'}&fechaFin=${fechaFinArg || '2100-12-31'}&page=${pageArg}&size=${sizeArg}`;
         Object.entries(filtros).forEach(([k, v]) => { if (v !== '') url += `&${k}=${v}`; });
         fetch(url, { credentials: "include" })
             .then(res => {
@@ -270,19 +261,11 @@ const MedicionesTable = () => {
         };
     }, [mediciones]);
 
-    // Mostrar mensaje si no hay estaciones
-    if (estacionesMemo.length === 0) {
-        return (
-            <Alert severity="info" icon={<InfoOutlined />} sx={{ mt: 2 }}>
-                No hay estaciones disponibles para mostrar.
-            </Alert>
-        );
-    }
 
     // Validar fechas antes de fetch
     const handleFiltrar = (e) => {
         e.preventDefault();
-        if (!estacion) {
+        if (!central) {
             setError("Debes seleccionar una estación.");
             return;
         }
@@ -369,11 +352,23 @@ const MedicionesTable = () => {
                 {/* Resumen estadístico y tendencias */}
                 <ResumenEstadistico resumen={resumen} mediciones={mediciones} />
                 <Box component="form" onSubmit={handleFiltrar} sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2, alignItems: "center" }}>
-                    <TextField select label="Estación" value={estacion} onChange={e => setEstacion(e.target.value)} size="small" sx={{ minWidth: 140, flex: '1 1 120px' }}>
-                        {estacionesMemo.map(opt => (
-                            <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
-                        ))}
-                    </TextField>
+                    <FormControl fullWidth sx={{ mb: 2 }}>
+                        <InputLabel id="central-label">Central</InputLabel>
+                        <Select
+                            labelId="central-label"
+                            value={central}
+                            label="Central"
+                            onChange={e => setCentral(e.target.value)}
+                        >
+                            {centrales && centrales.length > 0 ? (
+                                centrales.map(c => (
+                                    <MenuItem key={c.idCentral} value={c.nombreCentral}>{c.nombreCentral}</MenuItem>
+                                ))
+                            ) : (
+                                <MenuItem value="" disabled>No hay centrales disponibles</MenuItem>
+                            )}
+                        </Select>
+                    </FormControl>
                     <TextField label="Desde" type="date" size="small" InputLabelProps={{ shrink: true }} value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} sx={{ minWidth: 120 }} />
                     <TextField label="Hasta" type="date" size="small" InputLabelProps={{ shrink: true }} value={fechaFin} onChange={e => setFechaFin(e.target.value)} sx={{ minWidth: 120 }} />
                     {/* Filtros avanzados */}

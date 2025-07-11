@@ -4,7 +4,6 @@ import { Box, Toolbar, CssBaseline, ThemeProvider } from "@mui/material";
 import getTheme from "./theme";
 
 import MedicionesTable from "./pages/MedicionesTable";
-import Graficos from "./pages/Graficos";
 import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./AuthContext";
 import AdminUsuarios from "./pages/AdminUsuarios";
@@ -47,7 +46,6 @@ const MainApp = ({ user, showBienvenida, onCloseBienvenida, mode, setMode }) => 
                 <Routes>
                     <Route path="/" element={<Inicio />} />
                     <Route path="/mediciones" element={<MedicionesTable />} />
-                    <Route path="/graficos" element={<Graficos />} />
                     {user?.rol === 1 && (
                         <>
                             <Route path="/admin/usuarios/*" element={<AdminUsuarios />} />

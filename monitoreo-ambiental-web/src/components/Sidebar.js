@@ -1,6 +1,6 @@
 import React from "react";
 import { Drawer, List, ListItem, ListItemIcon, ListItemText, Toolbar, Divider, IconButton, useTheme, useMediaQuery, Button, Box } from "@mui/material";
-import { Home, Cloud, ShowChart, AdminPanelSettings, Menu as MenuIcon, Apartment } from "@mui/icons-material";
+import { Home, Cloud, AdminPanelSettings, Menu as MenuIcon, Apartment } from "@mui/icons-material";
 import { Link, useLocation } from "react-router-dom";
 
 const drawerWidth = 240;
@@ -14,7 +14,6 @@ export default function Sidebar({ user }) {
     const navItems = [
         { to: "/", label: "Inicio", icon: <Home /> },
         { to: "/mediciones", label: "Mediciones", icon: <Cloud /> },
-        { to: "/graficos", label: "Gráficos", icon: <ShowChart /> },
     ];
     if (user?.rol === 1) {
         navItems.push({ to: "/admin/usuarios", label: "Admin Usuarios", icon: <AdminPanelSettings /> });
